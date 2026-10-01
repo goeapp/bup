@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BUP — Backup Base de Datos v1.0.0</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BUP">
+<link rel="icon" type="image/svg+xml" href="icons/bup_icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/bup_icon_32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/bup_icon_180.png">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<!--
+  index_bup_v1_0_0.html — v1.0.0 (01/10/2026) — PWA de BUP (Entrega 3)
+
+  En el repo "bup" (GitHub Pages) se sube RENOMBRADO a index.html, junto
+  con manifest.json y la carpeta icons/. El manifest apunta a "./": la
+  URL y la PWA instalada no cambian entre versiones (decisión 01/10).
+
+  Backend: bup_gas_v1.1.gs (Web App en goecdg). Una sola URL para login
+  (pwa_pin) y datos (getDashboard / runNow).
+
+  Pantallas:
+   1) Login pwa_pin — copiado de BDC v6.1.2 (5 estados: email / código /
+      validando / sin conexión / error de auth). Sesión 7 días en
+      localStorage ("bup_sesion"), siempre revalidada contra el backend.
+   2) Dashboard (una sola pantalla, mobile-first, diseño delegado por Ale):
+      · Último backup (estado, fecha, ZIP, duración, conteos) + Próximo
+        (domingo 20–21 h, o "Pausado" si no hay trigger).
+      · Semáforo de las últimas 8 semanas (verde OK, ámbar alerta de
+        tamaño, rojo errores/falla, gris sin datos). Tocar = detalle.
+      · Archivos con su último estado; tocar uno abre su historial
+        (barras de tamaño de las últimas 8 copias + lista).
+      · Barra fija abajo: "Ejecutar ahora" (solo EsAdmin), con
+        confirmación, pantalla de espera y resultado.
+   Ctrl+Alt+U: diálogo "Sesión actual" (mismo que BDC).
+  Sin sw.js (igual que BDC).
+-->
+<style>
+:root {
+  --bg: #f1f5f9; --surface: #ffffff; --border: #e2e8f0;
+  --accent: #d97706; --accent-border: #92400e; --accent2: #0f172a;
+  --tag-bg: #fef3c7; --tag-fg: #92400e;
+  --text: #1e293b; --muted: #64748b;
+  --ok: #16a34a; --warn: #d97706; --err: #dc2626; --none: #cbd5e1;
+  --ok-bg: #f0fdf4; --warn-bg: #fffbeb; --err-bg: #fef2f2;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 1px 4px rgba(0,0,0,.07), 0 0 0 .5px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.10);
+  --header-h: 52px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; }
+button { font-family: inherit; cursor: pointer; }
+input { font-family: inherit; }
+
+/* ── LOGIN (de BDC) ─────────────────────────────── */
+.pantalla-centrada { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+.pantalla-centrada.visible { display: flex; }
+.caja { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px 32px; max-width: 380px; width: 100%; text-align: center; box-shadow: var(--shadow-md); }
+.caja-icono { width: 64px; height: 64px; margin: 0 auto 10px; display: block; border-radius: 14px; }
+.caja-logo { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; color: var(--accent); letter-spacing: 3px; }
+.caja-version { font-size: .62rem; color: var(--muted); margin-bottom: 4px; }
+.caja-sub { font-size: .78rem; color: var(--muted); margin-bottom: 28px; }
+.caja-title { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+.caja-desc { font-size: .8rem; color: var(--muted); margin-bottom: 22px; line-height: 1.6; }
+.login-paso { display: none; } .login-paso.activo { display: block; }
+.input-email, .input-pin { width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: .9rem; color: var(--text); margin-bottom: 14px; text-align: center; }
+.input-email:focus, .input-pin:focus { outline: none; border-color: var(--accent); }
+.input-pin { font-size: 1.4rem; letter-spacing: 6px; font-family: monospace; }
+.btn-accion { width: 100%; padding: 11px 18px; border: 1px solid var(--accent-border); border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: .85rem; font-weight: 600; }
+.btn-accion:hover:not(:disabled) { background: #b45309; }
+.btn-accion:disabled { opacity: .5; cursor: not-allowed; }
+.btn-secundario { width: 100%; padding: 9px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); font-size: .78rem; margin-top: 10px; }
+.btn-secundario:disabled { opacity: .5; cursor: not-allowed; }
+.msg-error { background: var(--err-bg); border: 1px solid #fecaca; color: #991b1b; border-radius: var(--radius-sm); padding: 9px 12px; font-size: .78rem; margin-bottom: 14px; text-align: left; display: none; }
+.msg-error.visible { display: block; }
+.spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; margin: 0 auto 16px; animation: girar .8s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* ── APP ────────────────────────────────────────── */
+#app { display: none; min-height: 100vh; padding-bottom: 96px; }
+#app-header { position: sticky; top: 0; z-index: 10; height: var(--header-h); background: var(--accent2); display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+.hdr-icono { width: 28px; height: 28px; border-radius: 7px; }
+.hdr-logo { font-family: 'Bebas Neue', sans-serif; font-size: 1.45rem; color: var(--accent); letter-spacing: 2px; }
+.hdr-version { font-size: .62rem; color: rgba(255,255,255,.4); }
+.hdr-sep { flex: 1; }
+.hdr-email { font-size: .72rem; color: rgba(255,255,255,.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.hdr-btn { background: transparent; border: 1px solid rgba(255,255,255,.2); color: rgba(255,255,255,.75); border-radius: var(--radius-sm); padding: 5px 10px; font-size: .72rem; display: inline-flex; align-items: center; gap: 6px; }
+.hdr-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.hdr-btn:disabled { opacity: .4; cursor: not-allowed; }
+.hdr-btn svg { width: 14px; height: 14px; }
+.hdr-btn.girando svg { animation: girar .8s linear infinite; }
+
+#dash { max-width: 720px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+.card-titulo { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+.card-titulo .sub { text-transform: none; letter-spacing: 0; font-weight: 500; }
+
+/* Estado: último + próximo */
+#estado-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; }
+.estado-ultimo { border-left: 5px solid var(--none); }
+.estado-ultimo.ok { border-left-color: var(--ok); } .estado-ultimo.warn { border-left-color: var(--warn); } .estado-ultimo.err { border-left-color: var(--err); }
+.estado-fila { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.estado-badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.estado-badge svg { width: 24px; height: 24px; }
+.estado-badge.ok { background: var(--ok-bg); color: var(--ok); } .estado-badge.warn { background: var(--warn-bg); color: var(--warn); } .estado-badge.err { background: var(--err-bg); color: var(--err); } .estado-badge.none { background: var(--bg); color: var(--muted); }
+.estado-texto { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+.estado-fecha { font-size: .78rem; color: var(--muted); }
+.metricas { display: flex; flex-wrap: wrap; gap: 6px; }
+.metrica { font-size: .74rem; background: var(--bg); border-radius: 99px; padding: 3px 10px; color: var(--text); white-space: nowrap; }
+.metrica b { font-weight: 700; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); } .dot.none { background: var(--none); }
+.proximo-dia { font-family: 'Bebas Neue', sans-serif; font-size: 2.3rem; line-height: 1; color: var(--accent2); letter-spacing: 1px; }
+.proximo-hora { font-size: .82rem; color: var(--muted); margin-top: 4px; }
+.proximo-falta { display: inline-block; margin-top: 10px; font-size: .72rem; font-weight: 600; color: var(--tag-fg); background: var(--tag-bg); border-radius: 99px; padding: 3px 10px; }
+.proximo-pausado { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; color: var(--muted); letter-spacing: 1px; }
+
+/* Semáforo */
+#semaforo { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.sem-celda { border: none; background: none; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.sem-cuadro { width: 100%; aspect-ratio: 1 / 1; max-width: 54px; border-radius: 8px; background: var(--none); display: flex; align-items: center; justify-content: center; color: #fff; transition: transform .1s; }
+.sem-cuadro svg { width: 55%; height: 55%; }
+.sem-celda:hover .sem-cuadro { transform: scale(1.06); }
+.sem-cuadro.ok { background: var(--ok); } .sem-cuadro.warn { background: var(--warn); } .sem-cuadro.err { background: var(--err); } .sem-cuadro.none { background: var(--bg); border: 1.5px dashed var(--none); }
+.sem-celda.actual .sem-cuadro { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent2); }
+.sem-fecha { font-size: .66rem; color: var(--muted); }
+.sem-celda.actual .sem-fecha { color: var(--accent2); font-weight: 700; }
+.leyenda { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: .7rem; color: var(--muted); }
+
+/* Archivos */
+.arch { border-top: 1px solid var(--border); }
+.arch:first-child { border-top: none; }
+.arch-fila { width: 100%; border: none; background: none; text-align: left; display: flex; align-items: center; gap: 10px; padding: 11px 2px; }
+.arch-fila:hover { background: #f8fafc; }
+.arch-info { flex: 1; min-width: 0; }
+.arch-nombre { font-weight: 600; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arch-meta { font-size: .7rem; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.chip { font-size: .62rem; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); }
+.chip.pwa { background: var(--tag-bg); color: var(--tag-fg); }
+.arch-der { text-align: right; flex-shrink: 0; }
+.arch-kb { font-weight: 600; font-size: .82rem; }
+.arch-var { font-size: .7rem; color: var(--muted); }
+.arch-var.baja { color: var(--warn); font-weight: 600; } .arch-var.sube { color: var(--ok); }
+.arch-chev { color: var(--muted); transition: transform .15s; flex-shrink: 0; }
+.arch.abierto .arch-chev { transform: rotate(90deg); }
+.arch.inactivo .arch-nombre, .arch.inactivo .arch-kb { color: var(--muted); }
+.arch-detalle { display: none; padding: 4px 2px 14px 18px; }
+.arch.abierto .arch-detalle { display: block; }
+.hist-barras { width: 100%; height: 70px; display: block; margin-bottom: 8px; }
+.hist-lista { font-size: .74rem; }
+.hist-item { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.hist-item:last-child { border-bottom: none; }
+.hist-item .f { color: var(--muted); width: 92px; flex-shrink: 0; }
+.hist-item .k { width: 70px; text-align: right; flex-shrink: 0; }
+.hist-item .d { color: var(--muted); flex: 1; min-width: 0; }
+.arch-obs { font-size: .72rem; color: var(--muted); margin-bottom: 8px; }
+.vacio { font-size: .82rem; color: var(--muted); text-align: center; padding: 14px 0; }
+
+.pie { text-align: center; font-size: .7rem; color: var(--muted); padding: 4px 0 8px; }
+
+/* Barra inferior */
+#barra-accion { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: rgba(241,245,249,.92); backdrop-filter: blur(6px); border-top: 1px solid var(--border); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none; }
+#barra-accion .inner { max-width: 720px; margin: 0 auto; }
+#btn-ejecutar { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: .92rem; padding: 13px; }
+#btn-ejecutar svg { width: 18px; height: 18px; }
+
+/* Diálogos (de BDC) */
+.overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+.overlay.visible { display: flex; }
+.dialogo-caja { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 22px; max-width: 360px; width: 100%; }
+.dialogo-title { font-size: .95rem; font-weight: 700; margin-bottom: 8px; }
+.dialogo-desc { font-size: .82rem; line-height: 1.6; margin-bottom: 18px; white-space: pre-wrap; }
+.dialogo-botones { display: flex; gap: 10px; }
+.dialogo-botones button { flex: 1; padding: 10px; border-radius: var(--radius-sm); font-size: .82rem; font-weight: 600; border: 1px solid var(--border); }
+.btn-cancelar { background: var(--surface); color: var(--text); }
+.btn-aceptar { background: var(--accent); color: #fff; border-color: var(--accent-border) !important; }
+.espera-caja { background: var(--surface); border-radius: var(--radius); padding: 28px 24px; max-width: 320px; width: 100%; text-align: center; box-shadow: var(--shadow-md); }
+.espera-titulo { font-weight: 700; margin-bottom: 4px; }
+.espera-desc { font-size: .8rem; color: var(--muted); }
+.espera-seg { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; color: var(--accent); margin-top: 6px; }
+.session-row { display: flex; justify-content: space-between; font-size: .8rem; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.btn-cerrar-sesion { width: 100%; margin-top: 16px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid #fecaca; background: var(--err-bg); color: #991b1b; font-size: .8rem; font-weight: 600; }
+
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(10px); background: var(--accent2); color: #fff; font-size: .78rem; font-weight: 500; padding: 10px 16px; border-radius: 12px; box-shadow: var(--shadow-md); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 150; max-width: calc(100% - 32px); text-align: center; }
+.toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 560px) {
+  #estado-grid { grid-template-columns: 1fr; }
+  .hdr-email { display: none; }
+  #dash { padding: 12px; gap: 12px; }
+  .sem-fecha { font-size: .58rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ LOGIN — pwa_pin ═══════════ -->
+<div id="login-screen" class="pantalla-centrada visible">
+  <div class="caja">
+    <img class="caja-icono" src="icons/bup_icon_192.png" alt="">
+    <div class="caja-logo">BUP</div>
+    <div class="caja-version">v1.0.0</div>
+    <div class="caja-sub">Backup "Base de Datos"</div>
+
+    <div class="login-paso" id="paso-email">
+      <div class="caja-title">Ingresá tu email</div>
+      <div class="caja-desc">Te vamos a enviar un código de acceso.</div>
+      <div class="msg-error" id="email-error"></div>
+      <input type="email" class="input-email" id="input-email" placeholder="tu.email@gmail.com" autocomplete="email">
+      <button class="btn-accion" id="btn-enviar-codigo" onclick="onEnviarCodigo()">Enviar código</button>
+    </div>
+    <div class="login-paso" id="paso-codigo">
+      <div class="caja-title">Ingresá el código</div>
+      <div class="caja-desc" id="codigo-desc">Te lo enviamos por mail. Vence en 10 minutos.</div>
+      <div class="msg-error" id="codigo-error"></div>
+      <input type="text" class="input-pin" id="input-pin" placeholder="······" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+      <button class="btn-accion" id="btn-validar-codigo" onclick="onValidarCodigo()">Ingresar</button>
+      <button class="btn-secundario" id="btn-reenviar" onclick="onEnviarCodigo(true)">Reenviar código</button>
+    </div>
+    <div class="login-paso" id="paso-validando">
+      <div class="spinner"></div>
+      <div class="caja-desc" style="margin-bottom:0">Validando usuario...</div>
+    </div>
+    <div class="login-paso" id="paso-sinconexion">
+      <div class="caja-title">Sin conexión</div>
+      <div class="caja-desc">No pudimos validar tu sesión. Revisá tu conexión a internet.</div>
+      <button class="btn-accion" onclick="validarSesionGuardada()">Reintentar</button>
+    </div>
+    <div class="login-paso" id="paso-error-auth">
+      <div class="caja-title">No pudimos validar tu acceso</div>
+      <div class="msg-error visible" id="error-auth-msg"></div>
+      <button class="btn-accion" onclick="volverAPedirEmail()">Volver a intentar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ DASHBOARD ═══════════ -->
+<div id="app">
+  <header id="app-header">
+    <img class="hdr-icono" src="icons/bup_icon_32.png" alt="">
+    <span class="hdr-logo">BUP</span>
+    <span class="hdr-version">v1.0.0</span>
+    <span class="hdr-sep"></span>
+    <span class="hdr-email" id="hdr-email"></span>
+    <button class="hdr-btn" id="btn-actualizar" onclick="cargarDashboard()" title="Actualizar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
+      Actualizar
+    </button>
+  </header>
+
+  <main id="dash">
+    <div class="card" style="text-align:center;padding:40px 16px"><div class="spinner"></div><div class="espera-desc">Cargando…</div></div>
+  </main>
+
+  <div id="barra-accion"><div class="inner">
+    <button class="btn-accion" id="btn-ejecutar" onclick="pedirEjecutar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg>
+      Ejecutar backup ahora
+    </button>
+  </div></div>
+</div>
+
+<!-- Diálogo genérico -->
+<div id="dialogo" class="overlay" onclick="if(event.target===this) cerrarDialogo(false)">
+  <div class="dialogo-caja">
+    <div class="dialogo-title" id="dialogo-title"></div>
+    <div class="dialogo-desc" id="dialogo-desc"></div>
+    <div class="dialogo-botones" id="dialogo-botones"></div>
+  </div>
+</div>
+
+<!-- Espera de ejecución -->
+<div id="espera" class="overlay">
+  <div class="espera-caja">
+    <div class="spinner"></div>
+    <div class="espera-titulo">Ejecutando backup…</div>
+    <div class="espera-desc">Exportando, armando el ZIP y enviando mails. Suele tardar menos de un minuto.</div>
+    <div class="espera-seg" id="espera-seg">0 s</div>
+  </div>
+</div>
+
+<!-- Sesión actual (Ctrl+Alt+U) -->
+<div id="session-dialog" class="overlay" onclick="if(event.target===this) this.classList.remove('visible')">
+  <div class="dialogo-caja">
+    <div class="dialogo-title">Sesión actual</div>
+    <div class="session-row"><span style="color:var(--muted)">Email</span><span id="sd-email"></span></div>
+    <div class="session-row"><span style="color:var(--muted)">Nombre</span><span id="sd-nombre"></span></div>
+    <div class="session-row"><span style="color:var(--muted)">Rol</span><span id="sd-rol"></span></div>
+    <div class="session-row"><span style="color:var(--muted)">Vence</span><span id="sd-vence"></span></div>
+    <button class="btn-cerrar-sesion" onclick="cerrarSesion()">Cerrar sesión</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ============================================================
+   BUP — index_bup_v1_0_0.html — lógica
+   ============================================================ */
+const BUP_GAS_URL = 'https://script.google.com/macros/s/AKfycbzgnCnmZYRVfso9DYb1MqiIhk5n7k74B-a31dE93kR3eQwfLXn7UtETUXCmM9zLdYJ9/exec';
+const SESION_KEY = 'bup_sesion';
+const SESION_DIAS = 7;
+const COOLDOWN_SEG = 120; // = PWAPIN_CONFIG.COOLDOWN_SEGUNDOS
+
+let emailActual = '';
+let cooldownInterval = null;
+let dashboard = null;
+let abiertos = new Set();
+
+const ICONOS = {
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 17h.01"/></svg>',
+  err: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10M17 7L7 17"/></svg>',
+  none: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 12h8"/></svg>'
+};
+
+// ── Backend ────────────────────────────────────────────────
+async function llamarBackend(action, params) {
+  const resp = await fetch(BUP_GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // sin preflight CORS
+    body: JSON.stringify(Object.assign({ action: action }, params || {}))
+  });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  return resp.json();
+}
+
+// ── Sesión ─────────────────────────────────────────────────
+function leerSesion() { try { return JSON.parse(localStorage.getItem(SESION_KEY)); } catch (e) { return null; } }
+function guardarSesion(email, r) {
+  const s = { email: email, nombreApellido: r.nombreApellido || '', noExpira: !!r.noExpira, esAdmin: !!r.esAdmin, exp: Date.now() + SESION_DIAS * 86400000 };
+  localStorage.setItem(SESION_KEY, JSON.stringify(s));
+  return s;
+}
+function borrarSesion() { localStorage.removeItem(SESION_KEY); }
+
+// ── Boot ───────────────────────────────────────────────────
+function boot() {
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey && e.altKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); abrirSessionDialog(); }
+  });
+  document.getElementById('input-pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') onValidarCodigo(); });
+  document.getElementById('input-email').addEventListener('keydown', function (e) { if (e.key === 'Enter') onEnviarCodigo(); });
+  if (!leerSesion()) { mostrarPasoLogin('email'); return; }
+  validarSesionGuardada();
+}
+
+async function validarSesionGuardada() {
+  const s = leerSesion();
+  if (!s) { mostrarPasoLogin('email'); return; }
+  mostrarPasoLogin('validando');
+  try {
+    const r = await llamarBackend('validarSesion', { email: s.email });
+    if (r.ok) { guardarSesion(s.email, r); emailActual = s.email; entrarApp(); return; }
+    borrarSesion();
+    mostrarLoginConError(mensajePorMotivo(r.motivo));
+  } catch (err) {
+    if (!s.noExpira && Date.now() > s.exp) mostrarPasoLogin('email');
+    else mostrarPasoLogin('sinconexion');
+  }
+}
+
+// ── Login (pwa_pin, igual que BDC) ─────────────────────────
+async function onEnviarCodigo(esReenvio) {
+  const btn = document.getElementById(esReenvio ? 'btn-reenviar' : 'btn-enviar-codigo');
+  const errorBox = document.getElementById(esReenvio ? 'codigo-error' : 'email-error');
+  errorBox.classList.remove('visible');
+  const email = esReenvio ? emailActual : document.getElementById('input-email').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { mostrarError(document.getElementById('email-error'), 'Ingresá un email válido.'); return; }
+  emailActual = email.toLowerCase();
+  btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Enviando...';
+  try {
+    const r = await llamarBackend('solicitarPIN', { email: emailActual });
+    if (r.ok) {
+      document.getElementById('codigo-desc').textContent = 'Enviado a ' + emailActual + '. Vence en 10 minutos.';
+      document.getElementById('input-pin').value = '';
+      mostrarPasoLogin('codigo'); iniciarCooldown();
+    } else {
+      mostrarError(errorBox, mensajePorMotivo(r.motivo, r.restanteSegundos));
+      if (r.motivo === 'cooldown') { mostrarPasoLogin('codigo'); iniciarCooldown(r.restanteSegundos); }
+    }
+  } catch (err) {
+    mostrarError(errorBox, 'No pudimos conectar. Revisá tu conexión e intentá de nuevo.');
+  } finally { btn.disabled = false; btn.textContent = txt; }
+}
+
+function iniciarCooldown(seg) {
+  const btn = document.getElementById('btn-reenviar');
+  let r = seg || COOLDOWN_SEG;
+  btn.disabled = true;
+  clearInterval(cooldownInterval);
+  function tick() {
+    if (r <= 0) { clearInterval(cooldownInterval); btn.disabled = false; btn.textContent = 'Reenviar código'; return; }
+    btn.textContent = 'Reenviar código (' + r + 's)'; r--;
+  }
+  tick();
+  cooldownInterval = setInterval(tick, 1000);
+}
+
+async function onValidarCodigo() {
+  const btn = document.getElementById('btn-validar-codigo');
+  const errorBox = document.getElementById('codigo-error');
+  errorBox.classList.remove('visible');
+  const pin = document.getElementById('input-pin').value.trim();
+  if (!/^\d{6}$/.test(pin)) { mostrarError(errorBox, 'El código tiene 6 dígitos.'); return; }
+  btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Validando...';
+  try {
+    const r = await llamarBackend('validarPIN', { email: emailActual, pin: pin });
+    if (r.ok) { guardarSesion(emailActual, r); clearInterval(cooldownInterval); entrarApp(); }
+    else mostrarError(errorBox, mensajePorMotivo(r.motivo, r.restantes));
+  } catch (err) {
+    mostrarError(errorBox, 'No pudimos conectar. Revisá tu conexión e intentá de nuevo.');
+  } finally { btn.disabled = false; btn.textContent = txt; }
+}
+
+function volverAPedirEmail() { document.getElementById('input-email').value = ''; mostrarPasoLogin('email'); }
+function mostrarLoginConError(msg) { document.getElementById('error-auth-msg').textContent = msg; mostrarPasoLogin('error-auth'); }
+function mostrarError(box, msg) { box.textContent = msg; box.classList.add('visible'); }
+
+function mensajePorMotivo(m, extra) {
+  return ({
+    no_encontrado: 'No encontramos ese email en el sistema.',
+    inactivo: 'Tu acceso está desactivado.',
+    bloqueado: 'Tu cuenta quedó bloqueada por intentos fallidos. Desbloqueala en usuarios_pin.',
+    pin_incorrecto: 'Código incorrecto.' + (extra ? ' Te quedan ' + extra + ' intentos.' : ''),
+    bloqueado_ahora: 'Demasiados intentos fallidos — la cuenta quedó bloqueada.',
+    pin_vencido: 'El código venció. Pedí uno nuevo.',
+    sin_pin_generado: 'Todavía no pediste un código.',
+    cooldown: 'Esperá ' + (extra || COOLDOWN_SEG) + ' segundos antes de pedir otro código.',
+    error_envio_mail: 'No pudimos enviar el mail. Reintentá en un momento.'
+  })[m] || 'Ocurrió un error. Intentá de nuevo.';
+}
+
+function mostrarPasoLogin(paso) {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').classList.add('visible');
+  document.querySelectorAll('.login-paso').forEach(function (el) { el.classList.remove('activo'); });
+  document.getElementById({ email: 'paso-email', codigo: 'paso-codigo', validando: 'paso-validando', sinconexion: 'paso-sinconexion', 'error-auth': 'paso-error-auth' }[paso]).classList.add('activo');
+  if (paso === 'email') setTimeout(function () { document.getElementById('input-email').focus(); }, 50);
+  if (paso === 'codigo') setTimeout(function () { document.getElementById('input-pin').focus(); }, 50);
+}
+
+// ── App ────────────────────────────────────────────────────
+function entrarApp() {
+  const s = leerSesion();
+  emailActual = s.email;
+  document.getElementById('login-screen').classList.remove('visible');
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('hdr-email').textContent = s.email;
+  document.getElementById('barra-accion').style.display = s.esAdmin ? 'block' : 'none';
+  cargarDashboard();
+}
+
+async function cargarDashboard() {
+  const btn = document.getElementById('btn-actualizar');
+  btn.disabled = true; btn.classList.add('girando');
+  try {
+    const r = await llamarBackend('getDashboard', { email: emailActual });
+    if (!r.ok) {
+      if (r.motivo) { borrarSesion(); mostrarLoginConError(mensajePorMotivo(r.motivo)); return; }
+      mostrarToast(r.error || 'No se pudo cargar el dashboard.');
+      return;
+    }
+    dashboard = r.dashboard;
+    renderDashboard();
+  } catch (err) {
+    if (!dashboard) document.getElementById('dash').innerHTML = '<div class="card vacio">Sin conexión. Tocá "Actualizar" para reintentar.</div>';
+    else mostrarToast('Sin conexión: se muestran los últimos datos.');
+  } finally { btn.disabled = false; btn.classList.remove('girando'); }
+}
+
+// ── Helpers de formato ─────────────────────────────────────
+const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+function partes(iso) { // 'yyyy-MM-ddTHH:mm:ss' (hora Buenos Aires) sin conversión de zona
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (!m) return null;
+  return { y: +m[1], mo: +m[2], d: +m[3], h: m[4] || '', mi: m[5] || '', dow: new Date(+m[1], +m[2] - 1, +m[3]).getDay() };
+}
+function fechaCorta(iso) { const p = partes(iso); return p ? String(p.d).padStart(2, '0') + '/' + String(p.mo).padStart(2, '0') : ''; }
+function fechaLarga(iso) { const p = partes(iso); return p ? DIAS[p.dow] + ' ' + fechaCorta(iso) + (p.h ? ' · ' + p.h + ':' + p.mi : '') : ''; }
+function num(n, dec) { return Number(n).toLocaleString('es-AR', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 }); }
+function tamano(kb) { if (kb == null || kb === '') return '—'; return kb >= 1024 ? num(kb / 1024, 1) + ' MB' : num(kb, 1) + ' KB'; }
+function claseEstado(e) { return ({ OK: 'ok', ALERTA: 'warn', CON_ERRORES: 'err', FALLA: 'err', ERROR: 'err' })[e] || 'none'; }
+function textoEstado(e) { return ({ OK: 'Backup OK', ALERTA: 'Con alertas', CON_ERRORES: 'Con errores', FALLA: 'No generado', SIN_DATOS: 'Sin datos' })[e] || e; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function diasHasta(iso) {
+  const p = partes(iso); if (!p) return null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  return Math.round((new Date(p.y, p.mo - 1, p.d) - hoy) / 86400000);
+}
+
+// ── Render ─────────────────────────────────────────────────
+function renderDashboard() {
+  const d = dashboard;
+  document.getElementById('dash').innerHTML =
+    '<div id="estado-grid">' + htmlUltimo(d.ultimo) + htmlProximo(d.proximo) + '</div>' +
+    htmlSemaforo(d.semanas) +
+    htmlArchivos(d.archivos) +
+    '<div class="pie">Retención ' + d.config.retencionSemanas + ' semanas · alerta si cae más de ' + d.config.umbralPct + '% · ' +
+    d.config.destinatarios + ' destinatario' + (d.config.destinatarios === 1 ? '' : 's') + ' del resumen · ' +
+    d.config.destinosTelegram + ' destino' + (d.config.destinosTelegram === 1 ? '' : 's') + ' Telegram<br>' +
+    'Actualizado ' + fechaLarga(d.ahora) + ' · backend ' + esc(d.version) + '</div>';
+}
+
+function htmlUltimo(u) {
+  if (!u) {
+    return '<div class="card estado-ultimo"><div class="card-titulo">Último backup</div>' +
+      '<div class="estado-fila"><div class="estado-badge none">' + ICONOS.none + '</div>' +
+      '<div><div class="estado-texto">Todavía no hay backups</div><div class="estado-fecha">El primero corre el domingo, o con "Ejecutar ahora".</div></div></div></div>';
+  }
+  const c = claseEstado(u.estado);
+  return '<div class="card estado-ultimo ' + c + '">' +
+    '<div class="card-titulo">Último backup <span class="sub">' + esc(u.origen) + '</span></div>' +
+    '<div class="estado-fila"><div class="estado-badge ' + c + '">' + ICONOS[c] + '</div>' +
+    '<div><div class="estado-texto">' + textoEstado(u.estado) + '</div><div class="estado-fecha">' + fechaLarga(u.fecha) + '</div></div></div>' +
+    '<div class="metricas">' +
+    (u.zipKB ? '<span class="metrica">ZIP <b>' + tamano(u.zipKB) + '</b>' + (u.partes > 1 ? ' en ' + u.partes + ' partes' : '') + '</span>' : '') +
+    '<span class="metrica"><b>' + u.duracion + '</b> s</span>' +
+    '<span class="metrica"><span class="dot ok"></span><b>' + u.ok + '</b> OK</span>' +
+    (u.alertas ? '<span class="metrica"><span class="dot warn"></span><b>' + u.alertas + '</b> alerta' + (u.alertas === 1 ? '' : 's') + '</span>' : '') +
+    (u.errores ? '<span class="metrica"><span class="dot err"></span><b>' + u.errores + '</b> error' + (u.errores === 1 ? '' : 'es') + '</span>' : '') +
+    '</div>' +
+    (u.estado === 'FALLA' ? '<div class="estado-fecha" style="margin-top:8px">' + esc(u.detalle) + '</div>' : '') +
+    '</div>';
+}
+
+function htmlProximo(p) {
+  if (!p.activo) {
+    return '<div class="card"><div class="card-titulo">Próximo backup</div><div class="proximo-pausado">Pausado</div>' +
+      '<div class="proximo-hora">El backup semanal no está activo. Se activa desde el menú BUP del Sheet.</div></div>';
+  }
+  const dd = diasHasta(p.fecha);
+  const falta = dd === 0 ? 'Hoy' : dd === 1 ? 'Mañana' : 'En ' + dd + ' días';
+  return '<div class="card"><div class="card-titulo">Próximo backup</div>' +
+    '<div class="proximo-dia">' + DIAS[partes(p.fecha).dow] + ' ' + fechaCorta(p.fecha) + '</div>' +
+    '<div class="proximo-hora">entre las ' + p.desde + ' y las ' + p.hasta + ' h</div>' +
+    '<span class="proximo-falta">' + falta + '</span></div>';
+}
+
+function htmlSemaforo(semanas) {
+  const celdas = semanas.map(function (s, i) {
+    const c = claseEstado(s.estado);
+    return '<button class="sem-celda' + (i === semanas.length - 1 ? ' actual' : '') + '" onclick="detalleSemana(' + i + ')">' +
+      '<div class="sem-cuadro ' + c + '">' + (c === 'none' ? '' : ICONOS[c]) + '</div>' +
+      '<div class="sem-fecha">' + fechaCorta(s.domingo) + '</div></button>';
+  }).join('');
+  return '<div class="card"><div class="card-titulo">Últimas 8 semanas <span class="sub">tocá una para ver el detalle</span></div>' +
+    '<div id="semaforo">' + celdas + '</div>' +
+    '<div class="leyenda"><span><span class="dot ok"></span>OK</span><span><span class="dot warn"></span>Caída de tamaño</span>' +
+    '<span><span class="dot err"></span>Error</span><span><span class="dot none"></span>Sin backup</span></div></div>';
+}
+
+function detalleSemana(i) {
+  const s = dashboard.semanas[i];
+  const etiqueta = 'Semana al ' + fechaCorta(s.domingo);
+  if (s.estado === 'SIN_DATOS') { mostrarToast(etiqueta + ': sin backup'); return; }
+  mostrarToast(etiqueta + ': ' + textoEstado(s.estado) + ' · ' + s.detalle + ' · ' + tamano(s.zipKB) + (s.corridas > 1 ? ' (' + s.corridas + ' corridas, se muestra la última)' : ''));
+}
+
+function htmlArchivos(lista) {
+  if (!lista.length) return '<div class="card"><div class="card-titulo">Archivos</div><div class="vacio">No hay archivos en la pestaña Archivos.</div></div>';
+  const activos = lista.filter(function (a) { return a.activo; }).length;
+  return '<div class="card"><div class="card-titulo">Archivos <span class="sub">' + activos + ' activo' + (activos === 1 ? '' : 's') + '</span></div>' +
+    lista.map(function (a, i) {
+      const u = a.ultimo;
+      const c = a.activo ? (u ? claseEstado(u.estado) : 'none') : 'none';
+      let varHtml = '';
+      if (u && u.varPct != null) {
+        const cl = u.varPct <= -dashboard.config.umbralPct ? 'baja' : (u.varPct > 0 ? 'sube' : '');
+        varHtml = '<div class="arch-var ' + cl + '">' + (u.varPct > 0 ? '+' : '') + num(u.varPct, 1) + '%</div>';
+      } else if (u) {
+        varHtml = '<div class="arch-var">primera copia</div>';
+      }
+      return '<div class="arch' + (a.activo ? '' : ' inactivo') + (abiertos.has(a.id) ? ' abierto' : '') + '" id="arch-' + i + '">' +
+        '<button class="arch-fila" onclick="toggleArchivo(' + i + ')">' +
+        '<span class="dot ' + c + '"></span>' +
+        '<div class="arch-info"><div class="arch-nombre">' + esc(a.nombre) + '</div>' +
+        '<div class="arch-meta">' + (a.tipo ? '<span class="chip">' + esc(a.tipo) + '</span>' : '') +
+        (a.pwa ? '<span class="chip pwa">' + esc(a.pwa) + '</span>' : '') +
+        (a.activo ? (u ? '<span>' + fechaLarga(u.fecha) + '</span>' : '<span>sin copias todavía</span>') : '<span>inactivo</span>') + '</div></div>' +
+        '<div class="arch-der"><div class="arch-kb">' + (u ? tamano(u.kb) : '—') + '</div>' + varHtml + '</div>' +
+        '<svg class="arch-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
+        '</button>' +
+        '<div class="arch-detalle">' + htmlHistorial(a) + '</div></div>';
+    }).join('') + '</div>';
+}
+
+function htmlHistorial(a) {
+  const obs = a.observaciones ? '<div class="arch-obs">' + esc(a.observaciones) + '</div>' : '';
+  if (!a.historial.length) return obs + '<div class="vacio" style="text-align:left;padding:4px 0">Sin copias registradas.</div>';
+  // Barras de tamaño (SVG simple, una barra por copia)
+  const W = 320, H = 70, n = a.historial.length, gap = 6;
+  const bw = Math.min(34, (W - gap * (n - 1)) / n);
+  const max = Math.max.apply(null, a.historial.map(function (h) { return h.kb || 0; })) || 1;
+  const color = { ok: 'var(--ok)', warn: 'var(--warn)', err: 'var(--err)', none: 'var(--none)' };
+  const barras = a.historial.map(function (h, i) {
+    const alto = h.kb ? Math.max(3, (h.kb / max) * (H - 16)) : 3;
+    const x = i * (bw + gap);
+    return '<rect x="' + x + '" y="' + (H - 14 - alto) + '" width="' + bw + '" height="' + alto + '" rx="3" fill="' + color[claseEstado(h.estado)] + '"><title>' +
+      fechaCorta(h.fecha) + ' · ' + tamano(h.kb) + ' · ' + h.estado + '</title></rect>' +
+      '<text x="' + (x + bw / 2) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="9" fill="#64748b">' + fechaCorta(h.fecha) + '</text>';
+  }).join('');
+  const items = a.historial.slice().reverse().map(function (h) {
+    return '<div class="hist-item"><span class="f"><span class="dot ' + claseEstado(h.estado) + '"></span>' + fechaLarga(h.fecha).replace(/ · .*/, '') + '</span>' +
+      '<span class="k">' + tamano(h.kb) + '</span><span class="d">' + esc(h.detalle || (h.varPct != null ? (h.varPct > 0 ? '+' : '') + num(h.varPct, 1) + '%' : '')) + '</span></div>';
+  }).join('');
+  return obs + '<svg class="hist-barras" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMinYMid meet">' + barras + '</svg>' +
+    '<div class="hist-lista">' + items + '</div>';
+}
+
+function toggleArchivo(i) {
+  const a = dashboard.archivos[i];
+  const el = document.getElementById('arch-' + i);
+  if (abiertos.has(a.id)) { abiertos.delete(a.id); el.classList.remove('abierto'); }
+  else { abiertos.add(a.id); el.classList.add('abierto'); }
+}
+
+// ── Ejecutar ahora ─────────────────────────────────────────
+async function pedirEjecutar() {
+  const si = await mostrarConfirm('Ejecutar backup ahora',
+    'Se exportan los archivos activos, se manda el ZIP por mail, el resumen a los destinatarios y el aviso por Telegram.', 'Ejecutar');
+  if (!si) return;
+  const espera = document.getElementById('espera');
+  const seg = document.getElementById('espera-seg');
+  const t0 = Date.now();
+  seg.textContent = '0 s';
+  espera.classList.add('visible');
+  const timer = setInterval(function () { seg.textContent = Math.round((Date.now() - t0) / 1000) + ' s'; }, 500);
+  try {
+    const r = await llamarBackend('runNow', { email: emailActual });
+    clearInterval(timer); espera.classList.remove('visible');
+    if (!r.ok) { await mostrarAviso('No se pudo ejecutar', r.error || 'Error desconocido.'); return; }
+    dashboard = r.dashboard; renderDashboard();
+    await mostrarAviso(r.ejecucion.titulo, r.ejecucion.texto);
+  } catch (err) {
+    clearInterval(timer); espera.classList.remove('visible');
+    await mostrarAviso('Sin respuesta', 'Se perdió la conexión mientras corría. El backup puede haber terminado igual: tocá "Actualizar" en un minuto para ver el resultado.');
+  }
+}
+
+// ── Diálogos / toast ───────────────────────────────────────
+let dialogoResolve = null;
+function mostrarConfirm(titulo, desc, textoAceptar) {
+  return new Promise(function (resolve) {
+    dialogoResolve = resolve;
+    document.getElementById('dialogo-title').textContent = titulo;
+    document.getElementById('dialogo-desc').textContent = desc;
+    document.getElementById('dialogo-botones').innerHTML =
+      '<button class="btn-cancelar" onclick="cerrarDialogo(false)">Cancelar</button>' +
+      '<button class="btn-aceptar" onclick="cerrarDialogo(true)">' + esc(textoAceptar || 'Aceptar') + '</button>';
+    document.getElementById('dialogo').classList.add('visible');
+  });
+}
+function mostrarAviso(titulo, desc) {
+  return new Promise(function (resolve) {
+    dialogoResolve = resolve;
+    document.getElementById('dialogo-title').textContent = titulo;
+    document.getElementById('dialogo-desc').textContent = desc;
+    document.getElementById('dialogo-botones').innerHTML = '<button class="btn-aceptar" onclick="cerrarDialogo(true)">Aceptar</button>';
+    document.getElementById('dialogo').classList.add('visible');
+  });
+}
+function cerrarDialogo(v) {
+  document.getElementById('dialogo').classList.remove('visible');
+  if (dialogoResolve) { const r = dialogoResolve; dialogoResolve = null; r(!!v); }
+}
+let toastId = null;
+function mostrarToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('visible');
+  clearTimeout(toastId); toastId = setTimeout(function () { el.classList.remove('visible'); }, 3200);
+}
+
+function abrirSessionDialog() {
+  const s = leerSesion(); if (!s) return;
+  document.getElementById('sd-email').textContent = s.email;
+  document.getElementById('sd-nombre').textContent = s.nombreApellido || '—';
+  document.getElementById('sd-rol').textContent = s.esAdmin ? 'Administrador' : 'Consulta';
+  document.getElementById('sd-vence').textContent = s.noExpira ? 'No expira' : new Date(s.exp).toLocaleDateString('es-AR');
+  document.getElementById('session-dialog').classList.add('visible');
+}
+function cerrarSesion() { borrarSesion(); location.reload(); }
+
+boot();
+</script>
+</body>
+</html>
