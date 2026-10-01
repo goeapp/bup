@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>BUP — Backup Base de Datos v1.0.0</title>
+<title>BUP — Backup Base de Datos v1.1.0</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f172a">
 <meta name="mobile-web-app-capable" content="yes">
@@ -15,6 +15,17 @@
 <link rel="apple-touch-icon" sizes="180x180" href="icons/bup_icon_180.png">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
 <!--
+  index_bup_v1_1_0.html — v1.1.0 (01/10/2026)
+
+  QUÉ CAMBIÓ EN v1.1.0 (respecto a v1.0.0) — pedido de Ale, patrón
+  copiado de MdT (index_v14_1.html + sw_v11.js):
+   - Botón "Instalar" en el header (beforeinstallprompt): aparece solo
+     si el navegador ofrece instalar y desaparece al instalar. En iOS
+     (sin ese evento) no se muestra; ahí se instala desde Compartir.
+   - Registro de ./sw.js (se entrega como sw_bup_v1_1_0.js y se sube
+     al repo renombrado a sw.js, igual que index.html).
+   Backend sin cambios (bup_gas_v1.1.gs).
+
   index_bup_v1_0_0.html — v1.0.0 (01/10/2026) — PWA de BUP (Entrega 3)
 
   En el repo "bup" (GitHub Pages) se sube RENOMBRADO a index.html, junto
@@ -96,6 +107,9 @@ input { font-family: inherit; }
 .hdr-btn:disabled { opacity: .4; cursor: not-allowed; }
 .hdr-btn svg { width: 14px; height: 14px; }
 .hdr-btn.girando svg { animation: girar .8s linear infinite; }
+/* v1.1.0 — botón Instalar (mismo estilo que MdT) */
+.btn-instalar-pwa { background: transparent; border: 1px solid rgba(217,119,6,.7); color: #d97706; border-radius: var(--radius-sm); padding: 5px 10px; font-size: .72rem; display: none; align-items: center; gap: 5px; transition: all .15s; }
+.btn-instalar-pwa:hover { background: rgba(217,119,6,.15); color: #fbbf24; border-color: #fbbf24; }
 
 #dash { max-width: 720px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
@@ -206,7 +220,7 @@ input { font-family: inherit; }
   <div class="caja">
     <img class="caja-icono" src="icons/bup_icon_192.png" alt="">
     <div class="caja-logo">BUP</div>
-    <div class="caja-version">v1.0.0</div>
+    <div class="caja-version">v1.1.0</div>
     <div class="caja-sub">Backup "Base de Datos"</div>
 
     <div class="login-paso" id="paso-email">
@@ -246,9 +260,13 @@ input { font-family: inherit; }
   <header id="app-header">
     <img class="hdr-icono" src="icons/bup_icon_32.png" alt="">
     <span class="hdr-logo">BUP</span>
-    <span class="hdr-version">v1.0.0</span>
+    <span class="hdr-version">v1.1.0</span>
     <span class="hdr-sep"></span>
     <span class="hdr-email" id="hdr-email"></span>
+    <button class="btn-instalar-pwa" id="btn-instalar-pwa" title="Instalar app" onclick="instalarPWA()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Instalar
+    </button>
     <button class="hdr-btn" id="btn-actualizar" onclick="cargarDashboard()" title="Actualizar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
       Actualizar
@@ -687,6 +705,42 @@ function abrirSessionDialog() {
   document.getElementById('session-dialog').classList.add('visible');
 }
 function cerrarSesion() { borrarSesion(); location.reload(); }
+
+// ── PWA: service worker + botón Instalar (v1.1.0, patrón MdT) ──
+let deferredInstallPrompt = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js')
+      .then(function (reg) { console.log('[PWA] SW registrado:', reg.scope); })
+      .catch(function (err) { console.warn('[PWA] SW error:', err); });
+  });
+}
+
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('btn-instalar-pwa').style.display = 'flex';
+});
+
+window.addEventListener('appinstalled', function () {
+  deferredInstallPrompt = null;
+  document.getElementById('btn-instalar-pwa').style.display = 'none';
+  mostrarToast('✅ App instalada correctamente');
+});
+
+function instalarPWA() {
+  if (!deferredInstallPrompt) {
+    mostrarToast('En iOS: Compartir → "Agregar a pantalla de inicio" 📱');
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(function (result) {
+    if (result.outcome === 'accepted') mostrarToast('✅ ¡App instalada!');
+    deferredInstallPrompt = null;
+    document.getElementById('btn-instalar-pwa').style.display = 'none';
+  });
+}
 
 boot();
 </script>
