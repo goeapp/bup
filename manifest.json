@@ -1,0 +1,21 @@
+{
+  "name": "BUP — Backup Base de Datos",
+  "short_name": "BUP",
+  "description": "Backup semanal de los Sheets y Docs de la Base de Datos: estado, historial y ejecución manual.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/bup_icon_128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "icons/bup_icon_152.png", "sizes": "152x152", "type": "image/png" },
+    { "src": "icons/bup_icon_180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/bup_icon_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/bup_icon_192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/bup_icon_512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/bup_icon_512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/bup_icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
